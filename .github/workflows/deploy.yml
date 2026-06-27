@@ -38,6 +38,13 @@ jobs:
         continue-on-error: true
         run: node scraper/scrape.mjs
 
+      - name: 上傳抓取到的資料 (供預覽/除錯)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gimy-data
+          path: data/
+
       - name: 組裝靜態網站
         run: |
           mkdir -p _site/data _site/assets

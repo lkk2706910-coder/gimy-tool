@@ -167,7 +167,8 @@
           <div class="card-meta">${meta}</div>
           <div class="card-time">${v.updateTime ? '更新 ' + esc(v.updateTime) : ''}</div>
           <div class="card-actions">
-            <a class="primary" href="${esc(play)}" target="_blank" rel="noopener" data-seen="${esc(v.id)}">▶ 觀看</a>
+            <a class="primary" href="${esc(play)}" target="_blank" rel="noopener" data-seen="${esc(v.id)}" title="直接播放最新一集">▶ 觀看</a>
+            <button class="ep-btn" data-eps="${esc(v.id)}" title="選集（最新在最上面）">選集</button>
             <a href="${esc(detail)}" target="_blank" rel="noopener" data-seen="${esc(v.id)}">詳情</a>
           </div>
         </div>
@@ -313,6 +314,12 @@
 
     // 卡片內的最愛切換 / 標記已看 (事件委派)
     $('#grid').addEventListener('click', (e) => {
+      const epBtn = e.target.closest('[data-eps]');
+      if (epBtn) {
+        const v = state.videos.find((x) => x.id === epBtn.dataset.eps);
+        if (v) openEpisodeModal(v);
+        return;
+      }
       const favBtn = e.target.closest('[data-fav]');
       if (favBtn) {
         const id = favBtn.dataset.fav;
@@ -369,6 +376,93 @@
     if (Notification.permission === 'granted') {
       fireNotifications(state.videos.filter((v) => isFav(v.id) && hasNewEpisode(v)));
     }
+  }
+
+  // ---------- 選集視窗 (最新集在最上面) ----------
+  const epCache = {};
+
+  function ensureModal() {
+    let modal = $('#ep-modal');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'ep-modal';
+    modal.className = 'ep-modal';
+    modal.hidden = true;
+    modal.innerHTML = `
+      <div class="ep-backdrop" data-close></div>
+      <div class="ep-dialog" role="dialog" aria-modal="true">
+        <div class="ep-head">
+          <div class="ep-title"></div>
+          <button class="ep-close" data-close aria-label="關閉">✕</button>
+        </div>
+        <div class="ep-sub"></div>
+        <div class="ep-list"></div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+      if (e.target.closest('[data-close]')) closeEpisodeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !modal.hidden) closeEpisodeModal();
+    });
+    return modal;
+  }
+
+  function closeEpisodeModal() {
+    const modal = $('#ep-modal');
+    if (modal) modal.hidden = true;
+    document.body.style.overflow = '';
+  }
+
+  async function openEpisodeModal(v) {
+    const modal = ensureModal();
+    modal.querySelector('.ep-title').textContent = v.name;
+    modal.querySelector('.ep-sub').textContent = '載入選集中…';
+    modal.querySelector('.ep-list').innerHTML = '';
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+
+    // 開啟選集視為已看到最新進度，清除新集數標記
+    if (isFav(v.id)) {
+      markSeen(v);
+      detectUpdates();
+    }
+
+    let data = epCache[v.id];
+    if (!data) {
+      try {
+        const res = await fetch(`data/episodes/${encodeURIComponent(v.id)}.json`);
+        data = res.ok ? await res.json() : null;
+      } catch {
+        data = null;
+      }
+      epCache[v.id] = data || { episodes: [] };
+      data = epCache[v.id];
+    }
+
+    const eps = (data && data.episodes) || [];
+    const sub = modal.querySelector('.ep-sub');
+    const list = modal.querySelector('.ep-list');
+
+    if (!eps.length) {
+      sub.textContent = '目前沒有這部的選集資料，可前往原站查看。';
+      list.innerHTML = `<a class="ep-fallback" href="${esc(v.detailUrl)}" target="_blank" rel="noopener">前往 Gimy 詳情頁 →</a>`;
+      return;
+    }
+
+    const total = data.count || eps.length;
+    sub.textContent =
+      `共 ${total} 集，最新在最上面` + (total > eps.length ? `（顯示最新 ${eps.length} 集）` : '');
+    // 反轉成「最新在前」
+    const reversed = eps.slice().reverse();
+    list.innerHTML = reversed
+      .map(
+        (ep, i) =>
+          `<a class="ep-item${i === 0 ? ' newest' : ''}" href="${esc(ep.url)}" target="_blank" rel="noopener">${
+            i === 0 ? '🆕 ' : ''
+          }${esc(ep.label)}</a>`
+      )
+      .join('');
   }
 
   // ---------- 啟動 ----------

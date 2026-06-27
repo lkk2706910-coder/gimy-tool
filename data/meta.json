@@ -1,0 +1,8 @@
+{
+  "lastUpdated": null,
+  "lastRun": null,
+  "lastRunSuccess": null,
+  "count": 5,
+  "source": "seed",
+  "note": "這是初始示範資料；GitHub Actions 爬蟲首次成功執行後會被真實資料覆蓋。"
+}

@@ -1,0 +1,67 @@
+name: 更新資料並部署到 GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - claude/gimy-content-aggregator-hmztdl
+  schedule:
+    # 每 6 小時更新一次 (UTC)。台灣時間 約 04:00 / 10:00 / 16:00 / 22:00
+    - cron: '0 */6 * * *'
+  workflow_dispatch: {}
+
+# 允許部署到 GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時間只跑一個部署，新的取消舊的進行中的 (但讓已排隊的完成)
+concurrency:
+  group: 'pages'
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出原始碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 執行爬蟲抓取 Gimy 最新影劇
+        # 即使爬蟲失敗也繼續部署 (會沿用 repo 內既有 / 示範資料)
+        continue-on-error: true
+        run: node scraper/scrape.mjs
+
+      - name: 組裝靜態網站
+        run: |
+          mkdir -p _site/data _site/assets
+          cp index.html _site/
+          cp -r assets/* _site/assets/
+          cp -r data/* _site/data/
+          touch _site/.nojekyll
+          echo "已組裝的檔案:" && ls -R _site | head -40
+
+      - name: 設定 Pages
+        uses: actions/configure-pages@v5
+
+      - name: 上傳 Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

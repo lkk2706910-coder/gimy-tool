@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gimy 追劇站 · 最新影劇整合</title>
+  <meta name="description" content="整合 Gimy 影劇資源，搜尋劇名、加入最愛、依最新集數排序，並提醒最愛影劇的新集數。" />
+  <link rel="stylesheet" href="assets/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-logo">🎬</span>
+        <div>
+          <h1>Gimy 追劇站</h1>
+          <p class="tagline">最新影劇整合 · 搜尋 · 最愛 · 新集數提醒</p>
+        </div>
+      </div>
+      <div class="search-wrap">
+        <input id="search" type="search" placeholder="搜尋劇名 / 演員 / 類型…" autocomplete="off" />
+        <button id="notify-btn" class="ghost-btn" title="開啟瀏覽器通知">🔔 開啟通知</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 最愛有新集數時的提示橫幅 -->
+  <div id="update-banner" class="update-banner" hidden></div>
+
+  <nav class="tabs">
+    <div class="tabs-inner">
+      <button class="tab active" data-view="all">全部</button>
+      <button class="tab" data-view="favorites">❤️ 我的最愛 <span id="fav-count" class="badge">0</span></button>
+      <span class="tab-spacer"></span>
+      <div class="cat-filter" id="cat-filter"></div>
+    </div>
+  </nav>
+
+  <main class="container">
+    <div class="toolbar">
+      <div class="result-info">
+        <span id="result-count">—</span>
+        <span id="data-meta" class="data-meta"></span>
+      </div>
+      <label class="sort-control">
+        排序：
+        <select id="sort">
+          <option value="time-desc">更新時間（新→舊）</option>
+          <option value="time-asc">更新時間（舊→新）</option>
+          <option value="ep-desc">集數（多→少）</option>
+          <option value="ep-asc">集數（少→多）</option>
+          <option value="name-asc">名稱（A→Z）</option>
+          <option value="score-desc">評分（高→低）</option>
+        </select>
+      </label>
+    </div>
+
+    <div id="grid" class="grid" aria-live="polite"></div>
+    <div id="empty" class="empty" hidden></div>
+  </main>
+
+  <footer class="footer">
+    <p>本站僅整合與索引 <a href="https://gimyai.tw" target="_blank" rel="noopener">Gimy 劇迷</a> 公開的影劇更新資訊，所有影片內容與播放皆連回原站；資料每日由 GitHub Actions 自動更新。最愛與通知設定儲存在您的瀏覽器本機。</p>
+  </footer>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>

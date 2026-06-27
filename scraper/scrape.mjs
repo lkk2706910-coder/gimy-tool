@@ -478,6 +478,20 @@ function extractSchedule(text) {
   return { weekdays: [...days].sort((a, b) => a - b), schedule: phrase.slice(0, 30) };
 }
 
+// 從詳情頁抓「更新：YYYY-MM-DD HH:MM:SS」的實際更新時間
+function extractUpdateTime(text) {
+  const m = (text || '').match(/更新[：:]\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)/);
+  return m ? m[1].replace('T', ' ') : '';
+}
+
+// 由日期字串算 ISO 星期 (1=週一 … 7=週日)
+function isoWeekday(dateStr) {
+  const m = (dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return 0;
+  const wd = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getDay(); // 0=日
+  return wd === 0 ? 7 : wd;
+}
+
 // 逐部抓取選集清單，寫入 data/episodes/{id}.json，並把「最新一集」設為該劇的 playUrl
 async function scrapeEpisodes(host, videos) {
   await mkdir(EP_DIR, { recursive: true });
@@ -497,12 +511,16 @@ async function scrapeEpisodes(host, videos) {
       done++;
       if (done % 150 === 0) console.log(`  選集進度 ${done}/${videos.length} (有選集 ${withEps})`);
       if (!r.ok) return;
-      // 順手解析「每週X更新」排程 (供追劇週曆使用)
+      // 抓實際更新時間 → 以 ISO 日曆推算每週更新日 (主要依據)，
+      // 並聯集文字「每週X更新」排程 (若有，較精準涵蓋多天)
+      const ut = extractUpdateTime(r.text);
       const sch = extractSchedule(r.text);
-      if (sch.weekdays.length) {
-        v.weekdays = sch.weekdays;
-        v.schedule = sch.schedule;
-      }
+      const days = new Set(sch.weekdays);
+      const wd = isoWeekday(ut);
+      if (wd) days.add(wd);
+      if (ut) v.updateTime = ut;
+      if (sch.schedule) v.schedule = sch.schedule;
+      if (days.size) v.weekdays = [...days].sort((a, b) => a - b);
       const eps = parseEpisodes(r.text, v.id);
       if (!eps.length) return;
       const capped = eps.slice(-EP_CAP); // 取最新的 EP_CAP 集
@@ -579,7 +597,9 @@ async function main() {
     try {
       console.log(`開始抓取各劇選集 (並發 ${EP_CONCURRENCY})…`);
       const withEps = await scrapeEpisodes(sourceHost, videos);
-      // 回寫 videos.json (含最新集 playUrl / 精準集數)
+      // 取得實際更新時間後，依「最近更新」重新排序 (新→舊)
+      videos.sort((a, b) => (b.updateTime || '').localeCompare(a.updateTime || ''));
+      // 回寫 videos.json (含最新集 playUrl / 精準集數 / 更新時間 / 每週更新日)
       await writeFile(OUT_VIDEOS, JSON.stringify(videos, null, 0), 'utf8');
       await touchMeta(true, { count: videos.length, source: sourceHost, mode, episodes: withEps });
       console.log('✅ 選集資料與 playUrl 已更新');

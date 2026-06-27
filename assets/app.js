@@ -245,12 +245,13 @@
       ? `<img src="${esc(v.pic)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">`
       : '';
     const sub = [v.type, v.remarks].filter(Boolean).map(esc).join(' · ');
+    const upd = v.updateTime ? ` · 🕒最近更新 ${esc(v.updateTime.slice(5, 16).replace('-', '/'))}` : '';
     return `
       <div class="cal-row">
         <div class="cal-poster">${poster}</div>
         <div class="cal-info">
           <div class="cal-name">${isNew ? '<span class="cal-new">NEW</span> ' : ''}${esc(v.name)}</div>
-          <div class="cal-sub">${sub}${v.schedule ? ` · 🕒${esc(v.schedule)}` : ''}</div>
+          <div class="cal-sub">${sub}${upd}</div>
         </div>
         <div class="cal-act">
           <a class="primary" href="${esc(v.playUrl || v.detailUrl)}" target="_blank" rel="noopener" data-seen="${esc(v.id)}">▶</a>

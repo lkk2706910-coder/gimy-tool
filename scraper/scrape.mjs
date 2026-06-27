@@ -58,7 +58,8 @@ const CATEGORIES = [
 ];
 
 const PAGES_PER_CATEGORY = Number(process.env.GIMY_PAGES || 6); // 每分類抓幾頁
-const REQUEST_TIMEOUT_MS = 20000;
+const REQUEST_TIMEOUT_MS = Number(process.env.GIMY_TIMEOUT || 12000);
+const DISCOVERY_TIMEOUT_MS = 6000; // 探測介面用較短逾時 (可用的 API 會很快回應)
 const MAX_TITLES = Number(process.env.GIMY_MAX || 1200); // 上限，避免資料檔過大
 
 const UA =
@@ -67,9 +68,9 @@ const UA =
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function fetchJson(url) {
+async function fetchJson(url, timeoutMs = REQUEST_TIMEOUT_MS) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       headers: {
@@ -134,19 +135,20 @@ async function fetchText(url, timeoutMs = REQUEST_TIMEOUT_MS) {
 // 找出能用的 host + api path + ac 組合 (用第一頁試水溫)
 // ac=detail 可取得集數播放清單；若站台只支援 ac=list 則退而求其次 (無 playUrl/集數)。
 async function discoverEndpoint() {
+  // 每個鏡像只用標準路徑快速試一次 (可用的 maccms JSON API 會立即回應)。
+  // Gimy 目前已關閉 JSON API，所以這裡通常全數失敗 → 改走 HTML 模式。
+  // 用較短逾時避免某站被限速時苦等。
   for (const host of HOSTS) {
     for (const path of API_PATHS) {
-      for (const ac of ['detail', 'list']) {
-        const testUrl = `${host}${path}?ac=${ac}&pg=1`;
-        process.stdout.write(`探測介面: ${testUrl} ... `);
-        const r = await fetchJson(testUrl);
-        if (r.ok && r.data && Array.isArray(r.data.list) && r.data.list.length) {
-          console.log('OK ✅');
-          return { host, path, ac, classes: r.data.class || [] };
-        }
-        console.log(`失敗 (${r.status || 'no list'})${r.snippet ? ' | ' + r.snippet : ''}`);
-        await sleep(300);
+      const testUrl = `${host}${path}?ac=detail&pg=1`;
+      process.stdout.write(`探測 JSON 介面: ${testUrl} ... `);
+      const r = await fetchJson(testUrl, DISCOVERY_TIMEOUT_MS);
+      if (r.ok && r.data && Array.isArray(r.data.list) && r.data.list.length) {
+        console.log('OK ✅');
+        return { host, path, ac: 'detail', classes: r.data.class || [] };
       }
+      console.log(`失敗 (${r.status || 'no list'})`);
+      await sleep(150);
     }
   }
   return null;

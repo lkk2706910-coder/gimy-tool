@@ -4,6 +4,6 @@
   "lastRunSuccess": true,
   "count": 1010,
   "source": "https://gimyai.tw",
-  "note": "這是初始示範資料；GitHub Actions 爬蟲首次成功執行後會被真實資料覆蓋。",
+  "note": "資料由 GitHub Actions 上的爬蟲自動從 Gimy 抓取更新。",
   "mode": "html"
 }

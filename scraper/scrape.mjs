@@ -462,7 +462,13 @@ async function touchMeta(success, extra = {}) {
     ...prev,
     lastRun: new Date().toISOString(),
     lastRunSuccess: success,
-    ...(success ? { lastUpdated: new Date().toISOString(), ...extra } : {}),
+    ...(success
+      ? {
+          lastUpdated: new Date().toISOString(),
+          note: '資料由 GitHub Actions 上的爬蟲自動從 Gimy 抓取更新。',
+          ...extra,
+        }
+      : {}),
   };
   await writeFile(OUT_META, JSON.stringify(meta, null, 2), 'utf8');
 }

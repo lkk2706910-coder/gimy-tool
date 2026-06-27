@@ -10,9 +10,9 @@ on:
     - cron: '0 */6 * * *'
   workflow_dispatch: {}
 
-# 允許部署到 GitHub Pages
+# 允許部署到 GitHub Pages，並回存抓取到的資料 (contents: write)
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -38,16 +38,18 @@ jobs:
         continue-on-error: true
         run: node scraper/scrape.mjs
 
-      - name: 輸出資料預覽 (前 60 筆，供截圖預覽)
+      - name: 回存抓取到的資料到 repo (供透明檢視，[skip ci] 避免觸發迴圈)
         if: always()
-        run: node -e "const d=require('./data/videos.json'); process.stdout.write('REALDATA_BEGIN'+JSON.stringify(d.slice(0,60))+'REALDATA_END')"
-
-      - name: 上傳抓取到的資料 (供預覽/除錯)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gimy-data
-          path: data/
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/videos.json data/meta.json
+          if git diff --staged --quiet; then
+            echo "資料無變更，略過 commit"
+          else
+            git commit -m "chore(data): 更新 Gimy 影劇資料 [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       - name: 組裝靜態網站
         run: |

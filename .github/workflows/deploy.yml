@@ -38,6 +38,10 @@ jobs:
         continue-on-error: true
         run: node scraper/scrape.mjs
 
+      - name: 輸出資料預覽 (前 60 筆，供截圖預覽)
+        if: always()
+        run: node -e "const d=require('./data/videos.json'); process.stdout.write('REALDATA_BEGIN'+JSON.stringify(d.slice(0,60))+'REALDATA_END')"
+
       - name: 上傳抓取到的資料 (供預覽/除錯)
         if: always()
         uses: actions/upload-artifact@v4

@@ -48,10 +48,8 @@ jobs:
           echo "已組裝的檔案:" && ls -R _site | head -40
 
       - name: 設定 Pages
-        # enablement: true 會用 workflow token 自動開啟 Pages，省去手動設定
+        # 需先在 repo Settings → Pages → Source 選擇 "GitHub Actions" (一次性)
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: 上傳 Pages artifact
         uses: actions/upload-pages-artifact@v3

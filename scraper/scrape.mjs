@@ -101,6 +101,30 @@ async function fetchJson(url) {
   }
 }
 
+// 取回純文字 (HTML) 內容
+async function fetchText(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': UA,
+        Accept: 'text/html,application/xhtml+xml,*/*;q=0.8',
+        'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+        Referer: new URL(url).origin + '/',
+      },
+      redirect: 'follow',
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return { ok: false, status: res.status };
+    return { ok: true, text: await res.text() };
+  } catch (err) {
+    return { ok: false, status: err.name === 'AbortError' ? 'timeout' : String(err) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // 找出能用的 host + api path + ac 組合 (用第一頁試水溫)
 // ac=detail 可取得集數播放清單；若站台只支援 ac=list 則退而求其次 (無 playUrl/集數)。
 async function discoverEndpoint() {
@@ -179,6 +203,183 @@ function stripHtml(s) {
     .trim();
 }
 
+function decodeEntities(s) {
+  return String(s || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .trim();
+}
+
+// 從 remarks (如「更新至20集」「全40集」「第12集」) 推算集數
+function episodesFromRemarks(remarks) {
+  if (!remarks) return 0;
+  const m = remarks.match(/(?:更新至|更新到|第|全)\s*(\d+)\s*集/);
+  if (m) return Number(m[1]);
+  if (/完结|完結/.test(remarks)) return 0; // 完結但未標集數
+  return 0;
+}
+
+// 從 Gimy 的 HTML 列表頁解析影劇項目 (容錯式 regex，不綁定特定模板)
+function parseListHtml(html, host, type) {
+  const items = new Map();
+  const linkRe = /href=["']([^"']*?\/(?:detail|voddetail|vod)\/(\d+)\.html)["']([^>]*)>/gi;
+  let m;
+  while ((m = linkRe.exec(html)) !== null) {
+    const id = m[2];
+    const inlineAttrs = m[3] || ''; // 同一個 <a> 標籤內 (href 之後) 的屬性
+    // 只向「後」取窗格，並在下一個 /detail/ 連結前截斷，避免吃到相鄰項目的資料
+    const afterHref = m.index + m[0].length;
+    const nextIdx = html.indexOf('/detail/', afterHref);
+    const end = nextIdx === -1 ? afterHref + 360 : Math.min(afterHref + 360, nextIdx);
+    const win = m[0] + html.slice(afterHref, Math.max(afterHref, end));
+
+    let title =
+      (inlineAttrs.match(/title=["']([^"']+)["']/) || [])[1] ||
+      (win.match(/title=["']([^"']+)["']/) || [])[1] ||
+      '';
+    title = decodeEntities(title);
+    if (!title || title.length > 80) {
+      const textM = win.match(new RegExp(`/${id}\\.html["'][^>]*>\\s*([^<]{1,60}?)\\s*<`));
+      title = textM ? decodeEntities(textM[1]) : title;
+    }
+    if (!title) continue;
+
+    let pic =
+      (inlineAttrs.match(/(?:data-original|data-src|data-echo|data-lazy|src)=["']([^"']+?\.(?:jpg|jpeg|png|webp)[^"']*)["']/i) ||
+        [])[1] ||
+      (win.match(/(?:data-original|data-src|data-echo|data-lazy|src)=["']([^"']+?\.(?:jpg|jpeg|png|webp)[^"']*)["']/i) ||
+        [])[1] ||
+      '';
+    if (pic.startsWith('//')) pic = 'https:' + pic;
+    else if (pic.startsWith('/')) pic = host + pic;
+
+    let remarks =
+      (win.match(
+        /<span[^>]*class=["'][^"']*(?:pic_text|pic-tag|note|deng|remarks|msg|tag|hdtype)[^"']*["'][^>]*>([^<]+)<\/span>/i
+      ) || [])[1] ||
+      (win.match(/(更新至\s*\d+\s*集|更新到\s*\d+\s*集|第\s*\d+\s*集|全\s*\d+\s*集|完结|完結|HD\w*|超清|高清|藍光|蓝光|搶先版|抢先版|\d{6,8}期|預告|预告|TC\w*|BD\w*|DVD)/) ||
+        [])[1] ||
+      '';
+    remarks = decodeEntities(remarks).replace(/\s+/g, '');
+
+    const prev = items.get(id) || {};
+    items.set(id, {
+      id,
+      name: prev.name || title,
+      pic: prev.pic || pic,
+      remarks: prev.remarks || remarks,
+      type: prev.type || type || '',
+    });
+  }
+  return [...items.values()];
+}
+
+function normalizeHtmlItem(it, host) {
+  return {
+    id: it.id,
+    name: it.name,
+    type: it.type || '',
+    area: '',
+    year: '',
+    lang: '',
+    pic: it.pic || '',
+    remarks: it.remarks || '',
+    episodes: episodesFromRemarks(it.remarks),
+    score: '',
+    actor: '',
+    director: '',
+    content: '',
+    updateTime: '',
+    detailUrl: `${host}/detail/${it.id}.html`,
+    playUrl: '',
+  };
+}
+
+// HTML 列表頁路徑候選 (不同模板的分頁寫法)
+function genrePageUrls(host, t, page) {
+  if (page <= 1) return [`${host}/genre/${t}.html`, `${host}/show/${t}.html`, `${host}/vodtype/${t}.html`];
+  return [
+    `${host}/genre/${t}--------${page}---.html`,
+    `${host}/show/${t}--------${page}---.html`,
+    `${host}/genre/${t}-${page}.html`,
+    `${host}/vodtype/${t}-${page}.html`,
+  ];
+}
+
+// 用 HTML 模式抓取 (當 JSON 採集介面不可用時的後備方案)
+async function scrapeViaHtml() {
+  // 1) 找一個會回傳真實 Gimy HTML 的鏡像
+  let host = null;
+  let homeHtml = '';
+  for (const h of HOSTS) {
+    process.stdout.write(`HTML 模式探測: ${h}/ ... `);
+    const r = await fetchText(`${h}/`);
+    if (r.ok && /\/detail\/\d+\.html/.test(r.text) && /gimy/i.test(r.text)) {
+      console.log('OK ✅');
+      host = h;
+      homeHtml = r.text;
+      break;
+    }
+    console.log(`不可用 (${r.status || 'no detail links'})`);
+    await sleep(300);
+  }
+  if (!host) return null;
+
+  const byId = new Map();
+  // 2) 首頁 (最近更新，順序即為最新)
+  const homeItems = parseListHtml(homeHtml, host, '');
+  console.log(`  首頁解析: ${homeItems.length} 筆`);
+  if (homeItems.length) {
+    console.log(`  範例: ${JSON.stringify(homeItems[0])}`);
+  } else {
+    // debug: 印出片段協助調整解析器
+    console.log('  首頁無法解析，HTML 片段:', homeHtml.replace(/\s+/g, ' ').slice(0, 600));
+  }
+  homeItems.forEach((it) => byId.set(it.id, normalizeHtmlItem(it, host)));
+
+  // 3) 各分類列表頁
+  const HTML_CATS = [
+    { t: 1, name: '電影' },
+    { t: 2, name: '電視劇' },
+    { t: 3, name: '綜藝' },
+    { t: 4, name: '動漫' },
+  ];
+  for (const cat of HTML_CATS) {
+    for (let page = 1; page <= PAGES_PER_CATEGORY; page++) {
+      let got = 0;
+      for (const url of genrePageUrls(host, cat.t, page)) {
+        const r = await fetchText(url);
+        if (!r.ok) continue;
+        const items = parseListHtml(r.text, host, cat.name);
+        if (items.length) {
+          items.forEach((it) => {
+            const v = normalizeHtmlItem(it, host);
+            if (byId.has(v.id)) {
+              // 補上分類
+              const ex = byId.get(v.id);
+              if (!ex.type) ex.type = cat.name;
+            } else {
+              byId.set(v.id, v);
+            }
+          });
+          got = items.length;
+          break; // 此 page 已用可用的 URL 模板取得
+        }
+      }
+      console.log(`  [${cat.name} p${page}] +${got} (累計 ${byId.size})`);
+      if (!got) break; // 此分類沒有更多頁
+      await sleep(250);
+    }
+  }
+
+  return { host, videos: [...byId.values()] };
+}
+
 async function fetchCategory(host, path, ac, t, pages) {
   const collected = [];
   for (let pg = 1; pg <= pages; pg++) {
@@ -201,41 +402,50 @@ async function main() {
   console.log('=== Gimy 影劇爬蟲開始 ===');
   await mkdir(DATA_DIR, { recursive: true });
 
-  const ep = await discoverEndpoint();
-  if (!ep) {
-    console.error('❌ 找不到可用的 Gimy 採集介面 (所有鏡像皆失敗)。');
-    console.error('   保留既有資料，不覆蓋。');
-    await touchMeta(false);
-    process.exitCode = existsSync(OUT_VIDEOS) ? 0 : 1;
-    return;
-  }
-  console.log(`使用介面: ${ep.host}${ep.path} (ac=${ep.ac})`);
+  let videos = [];
+  let sourceHost = '';
+  let mode = '';
 
-  const byId = new Map();
-  for (const cat of CATEGORIES) {
-    console.log(`抓取分類: ${cat.name} (t=${cat.t})`);
-    const raw = await fetchCategory(ep.host, ep.path, ep.ac, cat.t, PAGES_PER_CATEGORY);
-    for (const item of raw) {
-      const v = normalize(item, ep.host);
-      if (v && v.name) byId.set(v.id, v); // 後到的覆蓋 (較新)
+  // 策略一：maccms JSON 採集介面 (有集數播放清單，資料最完整)
+  const ep = await discoverEndpoint();
+  if (ep) {
+    console.log(`使用 JSON 介面: ${ep.host}${ep.path} (ac=${ep.ac})`);
+    const byId = new Map();
+    for (const cat of CATEGORIES) {
+      console.log(`抓取分類: ${cat.name} (t=${cat.t})`);
+      const raw = await fetchCategory(ep.host, ep.path, ep.ac, cat.t, PAGES_PER_CATEGORY);
+      for (const item of raw) {
+        const v = normalize(item, ep.host);
+        if (v && v.name) byId.set(v.id, v);
+      }
+    }
+    videos = [...byId.values()];
+    videos.sort((a, b) => (b.updateTime || '').localeCompare(a.updateTime || ''));
+    sourceHost = ep.host;
+    mode = 'json';
+  } else {
+    // 策略二：直接解析 HTML 列表頁 (JSON 介面被關閉時的後備)
+    console.log('JSON 介面不可用，改用 HTML 模式…');
+    const html = await scrapeViaHtml();
+    if (html && html.videos.length) {
+      videos = html.videos; // 已是「最新在前」的順序
+      sourceHost = html.host;
+      mode = 'html';
     }
   }
 
-  let videos = [...byId.values()];
-  // 依更新時間新→舊排序
-  videos.sort((a, b) => (b.updateTime || '').localeCompare(a.updateTime || ''));
   if (videos.length > MAX_TITLES) videos = videos.slice(0, MAX_TITLES);
 
   if (!videos.length) {
-    console.error('❌ 抓到 0 筆資料，保留既有資料不覆蓋。');
+    console.error('❌ 所有來源皆失敗或抓到 0 筆，保留既有資料不覆蓋。');
     await touchMeta(false);
     process.exitCode = existsSync(OUT_VIDEOS) ? 0 : 1;
     return;
   }
 
   await writeFile(OUT_VIDEOS, JSON.stringify(videos, null, 0), 'utf8');
-  await touchMeta(true, { count: videos.length, source: ep.host });
-  console.log(`✅ 完成: 寫入 ${videos.length} 筆 → data/videos.json`);
+  await touchMeta(true, { count: videos.length, source: sourceHost, mode });
+  console.log(`✅ 完成 (${mode}): 寫入 ${videos.length} 筆 → data/videos.json (來源 ${sourceHost})`);
 }
 
 async function touchMeta(success, extra = {}) {

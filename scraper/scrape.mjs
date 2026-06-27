@@ -91,7 +91,8 @@ async function fetchJson(url) {
           /* ignore */
         }
       }
-      return { ok: false, status: 'parse_error' };
+      const snippet = text.replace(/\s+/g, ' ').slice(0, 160);
+      return { ok: false, status: 'parse_error', snippet };
     }
   } catch (err) {
     return { ok: false, status: err.name === 'AbortError' ? 'timeout' : String(err) };
@@ -113,7 +114,7 @@ async function discoverEndpoint() {
           console.log('OK ✅');
           return { host, path, ac, classes: r.data.class || [] };
         }
-        console.log(`失敗 (${r.status || 'no list'})`);
+        console.log(`失敗 (${r.status || 'no list'})${r.snippet ? ' | ' + r.snippet : ''}`);
         await sleep(300);
       }
     }

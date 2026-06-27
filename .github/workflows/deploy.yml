@@ -40,6 +40,8 @@ jobs:
 
       - name: 回存抓取到的資料到 repo (供透明檢視，[skip ci] 避免觸發迴圈)
         if: always()
+        # 回存只是「附加價值」，即使失敗也絕不影響後續部署
+        continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -48,7 +50,9 @@ jobs:
             echo "資料無變更，略過 commit"
           else
             git commit -m "chore(data): 更新 Gimy 影劇資料 [skip ci]"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            # 先 rebase 遠端最新，避免 re-run / 競態造成 non-fast-forward
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            git push origin "HEAD:${GITHUB_REF_NAME}" || echo "::warning::資料回存推送失敗 (不影響部署)"
           fi
 
       - name: 組裝靜態網站

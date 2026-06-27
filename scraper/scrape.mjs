@@ -23,6 +23,10 @@ const ROOT = resolve(__dirname, '..');
 const DATA_DIR = resolve(ROOT, 'data');
 const OUT_VIDEOS = resolve(DATA_DIR, 'videos.json');
 const OUT_META = resolve(DATA_DIR, 'meta.json');
+const EP_DIR = resolve(DATA_DIR, 'episodes'); // 每部劇的選集清單 data/episodes/{id}.json
+
+const EP_CAP = Number(process.env.GIMY_EP_CAP || 300); // 每部最多保留幾集 (取最新的)
+const EP_CONCURRENCY = Number(process.env.GIMY_EP_CONCURRENCY || 6); // 抓選集的並發數
 
 // 候選鏡像網域 (依序嘗試，第一個成功就用)。Gimy 換域名很頻繁，多放幾個比較保險。
 const HOSTS = (process.env.GIMY_HOSTS || [
@@ -401,6 +405,81 @@ async function fetchCategory(host, path, ac, t, pages) {
   return collected;
 }
 
+// 簡單的並發控制 (workers 同時消化佇列)
+async function pool(items, worker, concurrency) {
+  let i = 0;
+  const runners = Array.from({ length: Math.max(1, concurrency) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      try {
+        await worker(items[idx], idx);
+      } catch {
+        /* 單筆失敗略過 */
+      }
+    }
+  });
+  await Promise.all(runners);
+}
+
+// 從 detail 頁解析選集：play 連結格式 /play/{id}-{來源}-{集數}.html
+// 一部劇可能有多個播放來源，挑「集數最多」的那個來源。回傳依集數遞增排序的陣列。
+function parseEpisodes(html, id) {
+  const re = new RegExp(
+    `href=["']([^"']*/play/${id}-(\\d+)-(\\d+)\\.html)["'][^>]*>([\\s\\S]*?)</a>`,
+    'gi'
+  );
+  const bySource = new Map();
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const href = m[1];
+    const source = m[2];
+    const epIdx = Number(m[3]);
+    const label = stripHtml(decodeEntities(m[4])).trim() || String(epIdx);
+    if (!bySource.has(source)) bySource.set(source, []);
+    bySource.get(source).push({ epIdx, label, href });
+  }
+  if (!bySource.size) return [];
+  let best = [];
+  for (const arr of bySource.values()) if (arr.length > best.length) best = arr;
+  // 去重 (同集數可能重複) 後依集數遞增排序
+  const seen = new Set();
+  best = best.filter((e) => (seen.has(e.epIdx) ? false : seen.add(e.epIdx)));
+  best.sort((a, b) => a.epIdx - b.epIdx);
+  return best;
+}
+
+// 逐部抓取選集清單，寫入 data/episodes/{id}.json，並把「最新一集」設為該劇的 playUrl
+async function scrapeEpisodes(host, videos) {
+  await mkdir(EP_DIR, { recursive: true });
+  let done = 0;
+  let withEps = 0;
+  await pool(
+    videos,
+    async (v) => {
+      const r = await fetchText(`${host}/detail/${v.id}.html`);
+      done++;
+      if (done % 150 === 0) console.log(`  選集進度 ${done}/${videos.length} (有選集 ${withEps})`);
+      if (!r.ok) return;
+      const eps = parseEpisodes(r.text, v.id);
+      if (!eps.length) return;
+      const capped = eps.slice(-EP_CAP); // 取最新的 EP_CAP 集
+      const episodes = capped.map((e) => ({ label: e.label, url: buildPlayUrl(host, e.href) }));
+      await writeFile(
+        resolve(EP_DIR, `${v.id}.json`),
+        JSON.stringify({ id: v.id, name: v.name, count: eps.length, episodes }),
+        'utf8'
+      );
+      v.playUrl = episodes[episodes.length - 1].url; // 觀看 → 直接跳最新一集
+      v.episodes = eps.length;
+      v.hasEpisodes = true;
+      withEps++;
+    },
+    EP_CONCURRENCY
+  );
+  console.log(`✅ 選集抓取完成：${withEps}/${videos.length} 部有選集資料`);
+  return withEps;
+}
+
 async function main() {
   console.log('=== Gimy 影劇爬蟲開始 ===');
   await mkdir(DATA_DIR, { recursive: true });
@@ -446,9 +525,24 @@ async function main() {
     return;
   }
 
+  // 先寫入基礎列表 (即使後面的選集抓取失敗，網站仍有最新資料)
   await writeFile(OUT_VIDEOS, JSON.stringify(videos, null, 0), 'utf8');
   await touchMeta(true, { count: videos.length, source: sourceHost, mode });
-  console.log(`✅ 完成 (${mode}): 寫入 ${videos.length} 筆 → data/videos.json (來源 ${sourceHost})`);
+  console.log(`✅ 列表完成 (${mode}): ${videos.length} 筆 → data/videos.json (來源 ${sourceHost})`);
+
+  // 進一步抓取各劇的「選集清單」(最新集在前)。失敗不影響已寫入的列表。
+  if (sourceHost && process.env.GIMY_SKIP_EPISODES !== '1') {
+    try {
+      console.log(`開始抓取各劇選集 (並發 ${EP_CONCURRENCY})…`);
+      const withEps = await scrapeEpisodes(sourceHost, videos);
+      // 回寫 videos.json (含最新集 playUrl / 精準集數)
+      await writeFile(OUT_VIDEOS, JSON.stringify(videos, null, 0), 'utf8');
+      await touchMeta(true, { count: videos.length, source: sourceHost, mode, episodes: withEps });
+      console.log('✅ 選集資料與 playUrl 已更新');
+    } catch (e) {
+      console.error('選集抓取失敗 (略過，不影響列表):', e);
+    }
+  }
 }
 
 async function touchMeta(success, extra = {}) {

@@ -218,10 +218,9 @@ function decodeEntities(s) {
 // 從 remarks (如「更新至20集」「全40集」「第12集」) 推算集數
 function episodesFromRemarks(remarks) {
   if (!remarks) return 0;
-  const m = remarks.match(/(?:更新至|更新到|第|全)\s*(\d+)\s*集/);
-  if (m) return Number(m[1]);
-  if (/完结|完結/.test(remarks)) return 0; // 完結但未標集數
-  return 0;
+  const m =
+    remarks.match(/(?:更新至|更新到|更新|第|全)\s*(\d+)\s*集/) || remarks.match(/(\d+)\s*集/);
+  return m ? Number(m[1]) : 0;
 }
 
 // 從 Gimy 的 HTML 列表頁解析影劇項目 (容錯式 regex，不綁定特定模板)
@@ -238,34 +237,31 @@ function parseListHtml(html, host, type) {
     const end = nextIdx === -1 ? afterHref + 360 : Math.min(afterHref + 360, nextIdx);
     const win = m[0] + html.slice(afterHref, Math.max(afterHref, end));
 
+    // 名稱：img 的 alt → poster__title / vodlist_title span → title 屬性 → 連結文字
     let title =
+      (win.match(/<span[^>]*class=["'][^"']*(?:poster__title|vodlist_title|module-poster-item-title|title)[^"']*["'][^>]*>([\s\S]*?)<\/span>/i) || [])[1] ||
+      (win.match(/\balt=["']([^"']+)["']/) || [])[1] ||
       (inlineAttrs.match(/title=["']([^"']+)["']/) || [])[1] ||
       (win.match(/title=["']([^"']+)["']/) || [])[1] ||
+      (win.match(/>\s*([^<>{}]{1,60}?)\s*<\/a>/) || [])[1] ||
       '';
-    title = decodeEntities(title);
-    if (!title || title.length > 80) {
-      const textM = win.match(new RegExp(`/${id}\\.html["'][^>]*>\\s*([^<]{1,60}?)\\s*<`));
-      title = textM ? decodeEntities(textM[1]) : title;
-    }
-    if (!title) continue;
+    title = decodeEntities(stripHtml(title)).trim();
+    if (!title || title.length > 80) continue;
 
     let pic =
-      (inlineAttrs.match(/(?:data-original|data-src|data-echo|data-lazy|src)=["']([^"']+?\.(?:jpg|jpeg|png|webp)[^"']*)["']/i) ||
-        [])[1] ||
-      (win.match(/(?:data-original|data-src|data-echo|data-lazy|src)=["']([^"']+?\.(?:jpg|jpeg|png|webp)[^"']*)["']/i) ||
-        [])[1] ||
-      '';
+      (win.match(/<img\b[^>]*?\b(?:data-original|data-src|data-echo|data-lazy|src)=["']([^"']+?\.(?:jpg|jpeg|png|webp)[^"']*)["']/i) ||
+        [])[1] || '';
     if (pic.startsWith('//')) pic = 'https:' + pic;
     else if (pic.startsWith('/')) pic = host + pic;
 
     let remarks =
       (win.match(
-        /<span[^>]*class=["'][^"']*(?:pic_text|pic-tag|note|deng|remarks|msg|tag|hdtype)[^"']*["'][^>]*>([^<]+)<\/span>/i
+        /<span[^>]*class=["'][^"']*(?:poster__status|poster__remarks|pic_text|pic-tag|note|deng|remarks|msg|hdtype)[^"']*["'][^>]*>([\s\S]*?)<\/span>/i
       ) || [])[1] ||
-      (win.match(/(更新至\s*\d+\s*集|更新到\s*\d+\s*集|第\s*\d+\s*集|全\s*\d+\s*集|完结|完結|HD\w*|超清|高清|藍光|蓝光|搶先版|抢先版|\d{6,8}期|預告|预告|TC\w*|BD\w*|DVD)/) ||
+      (win.match(/(更新至?\s*\d+\s*集|更新到\s*\d+\s*集|第\s*\d+\s*集|全\s*\d+\s*集|完结|完結|HD\w*|超清|高清|藍光|蓝光|搶先版|抢先版|\d{6,8}期|預告|预告|TC\w*|BD\w*|DVD)/) ||
         [])[1] ||
       '';
-    remarks = decodeEntities(remarks).replace(/\s+/g, '');
+    remarks = stripHtml(decodeEntities(remarks)).replace(/\s+/g, '');
 
     const prev = items.get(id) || {};
     items.set(id, {

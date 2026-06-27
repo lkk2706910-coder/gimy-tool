@@ -73,8 +73,11 @@ python3 -m http.server 8099
 
 ## 運作原理
 
-- **資料來源**：Gimy 採用蘋果 CMS（maccms），提供 `/api.php/provide/vod/?ac=detail`
-  JSON 採集介面。爬蟲會自動探測可用的鏡像網域與介面路徑。
+- **資料來源**：爬蟲先嘗試 maccms `/api.php/provide/vod/?ac=detail` JSON 採集介面；
+  Gimy 目前已關閉該介面，因此會自動改用 **HTML 模式**——直接解析 Gimy 首頁與各分類
+  列表頁的影劇卡片（`<a class="poster">`：劇名取自 `img alt`／`poster__title`，
+  海報取自 `img src`，集數備註取自 `poster__status`）。此模式已實測可從 GitHub
+  Actions runner 正常抓取（約 1000 部最新影劇）。爬蟲會自動挑選可用的鏡像網域。
 - **集數判斷**：從 `vod_play_url` 解析出播放片段數量作為集數，搭配 `vod_remarks`
   （如「更新至 20 集」）與 `vod_time`（更新時間）。
 - **新集數偵測**：加入最愛時記錄當下的集數 / 更新時間快照；之後資料更新若集數變多

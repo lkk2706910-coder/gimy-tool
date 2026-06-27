@@ -352,7 +352,8 @@ async function scrapeViaHtml() {
   ];
   for (const cat of HTML_CATS) {
     for (let page = 1; page <= PAGES_PER_CATEGORY; page++) {
-      let got = 0;
+      const before = byId.size;
+      let parsed = 0;
       for (const url of genrePageUrls(host, cat.t, page)) {
         const r = await fetchText(url);
         if (!r.ok) continue;
@@ -361,19 +362,20 @@ async function scrapeViaHtml() {
           items.forEach((it) => {
             const v = normalizeHtmlItem(it, host);
             if (byId.has(v.id)) {
-              // 補上分類
               const ex = byId.get(v.id);
-              if (!ex.type) ex.type = cat.name;
+              if (!ex.type) ex.type = cat.name; // 補上分類
             } else {
               byId.set(v.id, v);
             }
           });
-          got = items.length;
+          parsed = items.length;
           break; // 此 page 已用可用的 URL 模板取得
         }
       }
-      console.log(`  [${cat.name} p${page}] +${got} (累計 ${byId.size})`);
-      if (!got) break; // 此分類沒有更多頁
+      const added = byId.size - before;
+      console.log(`  [${cat.name} p${page}] 解析 ${parsed}，新增 ${added} (累計 ${byId.size})`);
+      // 沒有解析到任何項目，或這頁沒有帶來任何「新」項目 (代表分頁未前進/已到底) → 停止此分類
+      if (!parsed || added === 0) break;
       await sleep(250);
     }
   }

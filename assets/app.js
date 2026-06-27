@@ -176,9 +176,16 @@
   }
 
   function render() {
+    $('#fav-count').textContent = Object.keys(favs).length;
+    if (state.view === 'calendar') {
+      renderCalendar();
+      renderMeta();
+      return;
+    }
     const list = filtered();
     const grid = $('#grid');
     const empty = $('#empty');
+    grid.classList.remove('calendar-mode');
 
     grid.innerHTML = list.map(cardHTML).join('');
     $('#result-count').textContent = `共 ${list.length} 部影劇`;
@@ -218,6 +225,83 @@
           `<button class="cat-chip ${c === state.category ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`
       )
       .join('');
+  }
+
+  // ---------- 追劇週曆 ----------
+  const WEEK_NAMES = ['', '週一', '週二', '週三', '週四', '週五', '週六', '週日'];
+
+  function todayWeekday() {
+    const d = new Date().getDay(); // 0=日 … 6=六
+    return d === 0 ? 7 : d;
+  }
+
+  function isFinished(v) {
+    return /完結|完结|大結局|大结局|全集|全\d+集/.test(v.remarks || '');
+  }
+
+  function calRowHTML(v) {
+    const isNew = isFav(v.id) && hasNewEpisode(v);
+    const poster = v.pic
+      ? `<img src="${esc(v.pic)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">`
+      : '';
+    const sub = [v.type, v.remarks].filter(Boolean).map(esc).join(' · ');
+    return `
+      <div class="cal-row">
+        <div class="cal-poster">${poster}</div>
+        <div class="cal-info">
+          <div class="cal-name">${isNew ? '<span class="cal-new">NEW</span> ' : ''}${esc(v.name)}</div>
+          <div class="cal-sub">${sub}${v.schedule ? ` · 🕒${esc(v.schedule)}` : ''}</div>
+        </div>
+        <div class="cal-act">
+          <a class="primary" href="${esc(v.playUrl || v.detailUrl)}" target="_blank" rel="noopener" data-seen="${esc(v.id)}">▶</a>
+          <button class="ep-btn" data-eps="${esc(v.id)}">選集</button>
+        </div>
+      </div>`;
+  }
+
+  function renderCalendar() {
+    const grid = $('#grid');
+    const empty = $('#empty');
+    grid.classList.add('calendar-mode');
+    const favVideos = state.videos.filter((v) => isFav(v.id));
+
+    $('#result-count').textContent = `我的最愛更新時間表（${favVideos.length} 部）`;
+
+    if (!favVideos.length) {
+      grid.innerHTML = '';
+      empty.hidden = false;
+      empty.textContent = '尚未加入任何最愛。先到「全部」收藏想追的劇，這裡就會排出每週更新時間表。';
+      return;
+    }
+    empty.hidden = true;
+
+    const days = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
+    const irregular = [];
+    const finished = [];
+    for (const v of favVideos) {
+      if (Array.isArray(v.weekdays) && v.weekdays.length) {
+        v.weekdays.forEach((d) => days[d] && days[d].push(v));
+      } else if (isFinished(v)) {
+        finished.push(v);
+      } else {
+        irregular.push(v);
+      }
+    }
+    const today = todayWeekday();
+    const section = (title, list, opts = {}) => `
+      <section class="cal-day${opts.today ? ' is-today' : ''}">
+        <h3 class="cal-day-title">${esc(title)}${opts.today ? ' <span class="cal-today">今天</span>' : ''}
+          <span class="cal-count">${list.length}</span></h3>
+        <div class="cal-list">${
+          list.length ? list.map(calRowHTML).join('') : '<div class="cal-none">本日無更新</div>'
+        }</div>
+      </section>`;
+
+    let html = '';
+    for (let d = 1; d <= 7; d++) html += section(WEEK_NAMES[d], days[d], { today: d === today });
+    if (irregular.length) html += section('🔁 不定期 / 未標示', irregular);
+    if (finished.length) html += section('✅ 已完結', finished);
+    grid.innerHTML = `<div class="cal-wrap">${html}</div>`;
   }
 
   // ---------- 新集數提醒 ----------

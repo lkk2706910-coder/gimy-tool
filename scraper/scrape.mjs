@@ -284,6 +284,7 @@ function parseListHtml(html, host, type) {
 }
 
 function normalizeHtmlItem(it, host) {
+  const sch = extractSchedule(it.remarks); // 列表備註偶爾就含「每週X更新」
   return {
     id: it.id,
     name: it.name,
@@ -301,6 +302,8 @@ function normalizeHtmlItem(it, host) {
     updateTime: '',
     detailUrl: `${host}/detail/${it.id}.html`,
     playUrl: '',
+    weekdays: sch.weekdays, // 1=週一 … 7=週日 (詳情頁抓到後會覆蓋/補上)
+    schedule: sch.schedule,
   };
 }
 
@@ -452,6 +455,29 @@ function parseEpisodes(html, id) {
   return best;
 }
 
+// 從文字中解析「每週X更新」排程 → 回傳星期陣列 (1=一 … 7=日) 與原始排程字串
+function extractSchedule(text) {
+  if (!text) return { weekdays: [], schedule: '' };
+  const flat = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  const m = flat.match(/[每周週][周週一二三四五六日天、，,和及\/～~\-－至到 \d:：]{1,28}更新/);
+  if (!m) return { weekdays: [], schedule: '' };
+  const phrase = m[0].replace(/\s+/g, '');
+  const head = phrase.split('更新')[0];
+  const map = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 };
+  const days = new Set();
+  const range = head.match(/([一二三四五六日天])\s*[至到~～\-－]\s*[周週]?\s*([一二三四五六日天])/);
+  if (range) {
+    let a = map[range[1]];
+    let b = map[range[2]];
+    if (a && b) {
+      if (a > b) [a, b] = [b, a];
+      for (let i = a; i <= b; i++) days.add(i);
+    }
+  }
+  for (const ch of head) if (map[ch]) days.add(map[ch]);
+  return { weekdays: [...days].sort((a, b) => a - b), schedule: phrase.slice(0, 30) };
+}
+
 // 逐部抓取選集清單，寫入 data/episodes/{id}.json，並把「最新一集」設為該劇的 playUrl
 async function scrapeEpisodes(host, videos) {
   await mkdir(EP_DIR, { recursive: true });
@@ -471,6 +497,12 @@ async function scrapeEpisodes(host, videos) {
       done++;
       if (done % 150 === 0) console.log(`  選集進度 ${done}/${videos.length} (有選集 ${withEps})`);
       if (!r.ok) return;
+      // 順手解析「每週X更新」排程 (供追劇週曆使用)
+      const sch = extractSchedule(r.text);
+      if (sch.weekdays.length) {
+        v.weekdays = sch.weekdays;
+        v.schedule = sch.schedule;
+      }
       const eps = parseEpisodes(r.text, v.id);
       if (!eps.length) return;
       const capped = eps.slice(-EP_CAP); // 取最新的 EP_CAP 集

@@ -27,6 +27,8 @@ const EP_DIR = resolve(DATA_DIR, 'episodes'); // 每部劇的選集清單 data/e
 
 const EP_CAP = Number(process.env.GIMY_EP_CAP || 300); // 每部最多保留幾集 (取最新的)
 const EP_CONCURRENCY = Number(process.env.GIMY_EP_CONCURRENCY || 6); // 抓選集的並發數
+const EP_FETCH_TIMEOUT = Number(process.env.GIMY_EP_TIMEOUT || 8000); // 單頁逾時 (Gimy 被限速時不要苦等)
+const EP_TIME_BUDGET_MS = Number(process.env.GIMY_EP_BUDGET_MS || 180000); // 選集總時間預算 (用盡即停)
 
 // 候選鏡像網域 (依序嘗試，第一個成功就用)。Gimy 換域名很頻繁，多放幾個比較保險。
 const HOSTS = (process.env.GIMY_HOSTS || [
@@ -106,9 +108,9 @@ async function fetchJson(url) {
 }
 
 // 取回純文字 (HTML) 內容
-async function fetchText(url) {
+async function fetchText(url, timeoutMs = REQUEST_TIMEOUT_MS) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       headers: {
@@ -451,12 +453,19 @@ function parseEpisodes(html, id) {
 // 逐部抓取選集清單，寫入 data/episodes/{id}.json，並把「最新一集」設為該劇的 playUrl
 async function scrapeEpisodes(host, videos) {
   await mkdir(EP_DIR, { recursive: true });
+  // videos 已是「最新在前」，優先處理近期影劇；時間預算用盡就停 (避免 Gimy 限速時拖垮部署)
+  const deadline = Date.now() + EP_TIME_BUDGET_MS;
   let done = 0;
   let withEps = 0;
+  let skipped = 0;
   await pool(
     videos,
     async (v) => {
-      const r = await fetchText(`${host}/detail/${v.id}.html`);
+      if (Date.now() > deadline) {
+        skipped++;
+        return;
+      }
+      const r = await fetchText(`${host}/detail/${v.id}.html`, EP_FETCH_TIMEOUT);
       done++;
       if (done % 150 === 0) console.log(`  選集進度 ${done}/${videos.length} (有選集 ${withEps})`);
       if (!r.ok) return;
@@ -476,6 +485,7 @@ async function scrapeEpisodes(host, videos) {
     },
     EP_CONCURRENCY
   );
+  if (skipped) console.log(`⏱️ 選集時間預算用盡，本次略過 ${skipped} 部 (下次再補)`);
   console.log(`✅ 選集抓取完成：${withEps}/${videos.length} 部有選集資料`);
   return withEps;
 }

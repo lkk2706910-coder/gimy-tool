@@ -337,8 +337,13 @@ async function scrapeViaHtml() {
   if (homeItems.length) {
     console.log(`  範例: ${JSON.stringify(homeItems[0])}`);
   } else {
-    // debug: 印出片段協助調整解析器
-    console.log('  首頁無法解析，HTML 片段:', homeHtml.replace(/\s+/g, ' ').slice(0, 600));
+    // debug: 印出第一個 /detail/ 連結周邊的 HTML，協助調整解析器
+    const di = homeHtml.search(/\/(?:detail|voddetail|vod)\/\d+/);
+    if (di >= 0) {
+      console.log('  [debug] /detail/ 周邊片段:', homeHtml.slice(Math.max(0, di - 300), di + 300).replace(/\s+/g, ' '));
+    } else {
+      console.log('  [debug] 全文找不到 /detail/ 連結。前 400 字:', homeHtml.replace(/\s+/g, ' ').slice(0, 400));
+    }
   }
   homeItems.forEach((it) => byId.set(it.id, normalizeHtmlItem(it, host)));
 

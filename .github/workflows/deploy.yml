@@ -59,6 +59,9 @@ jobs:
         run: |
           mkdir -p _site/data _site/assets
           cp index.html _site/
+          # 為 CSS/JS 加上版本號 (commit SHA)，避免瀏覽器吃到舊快取
+          V="${GITHUB_SHA::8}"
+          sed -i "s#assets/style.css#assets/style.css?v=${V}#g; s#assets/app.js#assets/app.js?v=${V}#g" _site/index.html
           cp -r assets/* _site/assets/
           cp -r data/* _site/data/
           touch _site/.nojekyll

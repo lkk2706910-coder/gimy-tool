@@ -1,8 +1,9 @@
 {
-  "lastUpdated": null,
-  "lastRun": null,
-  "lastRunSuccess": null,
-  "count": 5,
-  "source": "seed",
-  "note": "這是初始示範資料；GitHub Actions 爬蟲首次成功執行後會被真實資料覆蓋。"
+  "lastUpdated": "2026-06-27T10:51:22.360Z",
+  "lastRun": "2026-06-27T10:51:22.360Z",
+  "lastRunSuccess": true,
+  "count": 1010,
+  "source": "https://gimyai.tw",
+  "note": "這是初始示範資料；GitHub Actions 爬蟲首次成功執行後會被真實資料覆蓋。",
+  "mode": "html"
 }

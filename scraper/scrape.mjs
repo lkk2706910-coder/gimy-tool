@@ -542,9 +542,109 @@ async function scrapeEpisodes(host, videos) {
   return withEps;
 }
 
+// 現在時間 (近似 Gimy 時區 UTC+8)，格式 YYYY-MM-DD HH:MM:SS
+function nowString() {
+  return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+async function loadExistingVideos() {
+  try {
+    const d = JSON.parse(await readFile(OUT_VIDEOS, 'utf8'));
+    return Array.isArray(d) ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+// 🪶 輕量模式：只抓「最近更新」清單 (首頁 + 各分類第 1 頁)，合併進既有資料。
+// 不重抓詳情/選集，沿用既有選集檔。回傳 true 表示已處理 (不需再跑完整流程)。
+async function runLight() {
+  const existing = await loadExistingVideos();
+  if (!existing || !existing.length) {
+    console.log('輕量模式：找不到既有資料，改跑完整流程');
+    return false;
+  }
+  let host = null;
+  let homeHtml = '';
+  for (const h of HOSTS) {
+    const r = await fetchText(`${h}/`, REQUEST_TIMEOUT_MS);
+    if (r.ok && /\/detail\/\d+\.html/.test(r.text) && /gimy/i.test(r.text)) {
+      host = h;
+      homeHtml = r.text;
+      break;
+    }
+  }
+  if (!host) {
+    console.error('輕量模式：找不到可用鏡像，保留既有資料不覆蓋');
+    await touchMeta(false);
+    return true;
+  }
+
+  const scraped = [...parseListHtml(homeHtml, host, '')];
+  for (const cat of [
+    { t: 1, name: '電影' },
+    { t: 2, name: '電視劇' },
+    { t: 3, name: '綜藝' },
+    { t: 4, name: '動漫' },
+  ]) {
+    for (const url of genrePageUrls(host, cat.t, 1)) {
+      const r = await fetchText(url, REQUEST_TIMEOUT_MS);
+      if (r.ok) {
+        const items = parseListHtml(r.text, host, cat.name);
+        if (items.length) {
+          scraped.push(...items);
+          break;
+        }
+      }
+    }
+    await sleep(200);
+  }
+
+  const map = new Map(existing.map((v) => [v.id, v]));
+  const now = nowString();
+  const wdNow = isoWeekday(now);
+  let added = 0;
+  let changed = 0;
+  for (const s of scraped) {
+    const ex = map.get(s.id);
+    if (!ex) {
+      const v = normalizeHtmlItem(s, host);
+      v.updateTime = now;
+      v.weekdays = wdNow ? [wdNow] : [];
+      map.set(s.id, v);
+      added++;
+    } else {
+      if (s.remarks && s.remarks !== ex.remarks) {
+        ex.remarks = s.remarks;
+        const ec = episodesFromRemarks(s.remarks);
+        if (ec) ex.episodes = ec;
+        ex.updateTime = now; // 進度有變 = 剛更新
+        if (wdNow) ex.weekdays = [wdNow];
+        changed++;
+      }
+      if (s.pic && !ex.pic) ex.pic = s.pic;
+      if (s.type && !ex.type) ex.type = s.type;
+    }
+  }
+
+  let videos = [...map.values()];
+  videos.sort((a, b) => (b.updateTime || '').localeCompare(a.updateTime || ''));
+  if (videos.length > MAX_TITLES) videos = videos.slice(0, MAX_TITLES);
+  await writeFile(OUT_VIDEOS, JSON.stringify(videos, null, 0), 'utf8');
+  await touchMeta(true, { count: videos.length, source: host, mode: 'light', lightAdded: added, lightChanged: changed });
+  console.log(`✅ 輕量更新完成：新增 ${added}、進度更新 ${changed} (共 ${videos.length}) 來源 ${host}`);
+  return true;
+}
+
 async function main() {
   console.log('=== Gimy 影劇爬蟲開始 ===');
   await mkdir(DATA_DIR, { recursive: true });
+
+  if (process.env.GIMY_LIGHT === '1') {
+    console.log('🪶 輕量模式 (每小時：只刷新最近更新清單)');
+    const handled = await runLight();
+    if (handled) return;
+  }
 
   let videos = [];
   let sourceHost = '';

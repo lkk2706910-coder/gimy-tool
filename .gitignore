@@ -2,6 +2,3 @@ node_modules/
 _site/
 .DS_Store
 *.log
-
-# 爬蟲產生的選集檔 (由 Actions 部署，不需版控)
-data/episodes/

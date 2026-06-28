@@ -6,8 +6,9 @@ on:
       - main
       - claude/gimy-content-aggregator-hmztdl
   schedule:
-    # 每 6 小時更新一次 (UTC)。台灣時間 約 04:00 / 10:00 / 16:00 / 22:00
-    - cron: '0 */6 * * *'
+    # 每小時觸發；整點 UTC 0/6/12/18 (台灣 02/08/14/20) 做「完整更新」，
+    # 其餘小時做「輕量更新」(只刷新最近更新清單)。
+    - cron: '0 * * * *'
   workflow_dispatch: {}
 
 # 允許部署到 GitHub Pages，並回存抓取到的資料 (contents: write)
@@ -33,9 +34,21 @@ jobs:
         with:
           node-version: '20'
 
+      - name: 決定更新模式 (整點每 6 小時=完整，其餘=輕量；push/手動=完整)
+        id: mode
+        run: |
+          H=$(date -u +%-H)
+          if [ "${{ github.event_name }}" != "schedule" ] || [ "$(( H % 6 ))" = "0" ]; then
+            echo "light=0" >> "$GITHUB_OUTPUT"; echo "模式：完整更新"
+          else
+            echo "light=1" >> "$GITHUB_OUTPUT"; echo "模式：輕量更新"
+          fi
+
       - name: 執行爬蟲抓取 Gimy 最新影劇
         # 即使爬蟲失敗也繼續部署 (會沿用 repo 內既有 / 示範資料)
         continue-on-error: true
+        env:
+          GIMY_LIGHT: ${{ steps.mode.outputs.light }}
         run: node scraper/scrape.mjs
 
       - name: 回存抓取到的資料到 repo (供透明檢視，[skip ci] 避免觸發迴圈)
@@ -45,7 +58,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/videos.json data/meta.json
+          git add data/videos.json data/meta.json data/episodes
           if git diff --staged --quiet; then
             echo "資料無變更，略過 commit"
           else

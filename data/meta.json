@@ -1,12 +1,12 @@
 {
-  "lastUpdated": "2026-07-25T07:16:53.895Z",
-  "lastRun": "2026-07-25T07:16:53.895Z",
+  "lastUpdated": "2026-07-25T09:47:29.988Z",
+  "lastRun": "2026-07-25T09:47:29.988Z",
   "lastRunSuccess": true,
-  "count": 1093,
+  "count": 1147,
   "source": "https://gimyai.tw",
   "note": "資料由 GitHub Actions 上的爬蟲自動從 Gimy 抓取更新。",
   "mode": "light",
   "episodes": 1028,
-  "lightAdded": 60,
-  "lightChanged": 75
+  "lightAdded": 54,
+  "lightChanged": 79
 }

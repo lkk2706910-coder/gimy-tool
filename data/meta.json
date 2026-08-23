@@ -1,6 +1,6 @@
 {
-  "lastUpdated": "2026-08-23T21:21:07.477Z",
-  "lastRun": "2026-08-23T21:21:07.477Z",
+  "lastUpdated": "2026-08-23T22:21:01.022Z",
+  "lastRun": "2026-08-23T22:21:01.022Z",
   "lastRunSuccess": true,
   "count": 714,
   "source": "https://gimyai.tw",
@@ -8,5 +8,5 @@
   "mode": "light",
   "episodes": 714,
   "lightAdded": 0,
-  "lightChanged": 3
+  "lightChanged": 0
 }

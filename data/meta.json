@@ -1,7 +1,7 @@
 {
   "lastUpdated": "2026-11-21T12:10:56.964Z",
-  "lastRun": "2026-11-21T12:10:56.964Z",
-  "lastRunSuccess": true,
+  "lastRun": "2026-11-21T19:57:19.556Z",
+  "lastRunSuccess": false,
   "count": 310,
   "source": "https://gimytv.biz",
   "note": "資料由 GitHub Actions 上的爬蟲自動從 Gimy 抓取更新。",
